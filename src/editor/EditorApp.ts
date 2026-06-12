@@ -1,4 +1,4 @@
-import type { LevelData, ColorKey, PlacedPiece } from '../shared/types';
+import type { LevelData, ColorKey, PlacedPiece, ContainerColor } from '../shared/types';
 import { COLOR_KEYS, COLOR_CSS } from '../shared/colors';
 import { GLOBAL_CHARGE } from '../game/config';
 import {
@@ -11,6 +11,7 @@ import {
 } from '../shared/containerLayout';
 import { saveCustomLevel } from '../ui/storage';
 import { ContainerGrid } from './ContainerGrid';
+import { QueueBoard } from './QueueBoard';
 
 export interface EditorCallbacks {
   initial?: LevelData;
@@ -23,13 +24,21 @@ export class EditorApp {
   private id: string;
   private name: string;
   private deckSlots: number;
-  private queues: ColorKey[][]; // each queue = list of box colours, front first
-  private newColor: ColorKey = 'red';
 
+  // stage 0 — recipe
+  private boxCounts: Record<ColorKey, number>;
+  private queueCount: number;
+
+  // stage 1 — distribution
+  private queues: ColorKey[][];
+  private queuesSig = '';
+
+  // stage 2 — layout
   private layout: PlacedPiece[] | null = null;
   private layoutSig = '';
 
-  private stage: 1 | 2 = 1;
+  private stage: 0 | 1 | 2 = 0;
+  private board: QueueBoard | null = null;
   private grid: ContainerGrid | null = null;
 
   // shell
@@ -45,16 +54,23 @@ export class EditorApp {
     this.id = init?.id?.startsWith('custom-') ? init.id : `custom-${Date.now()}`;
     this.name = init?.name ?? 'New Level';
     this.deckSlots = init?.deckSlots ?? 4;
-    this.queues = (init?.queues ?? [{ boxes: [] }]).map((q) => q.boxes.map((b) => b.color));
-    if (this.queues.length === 0) this.queues = [[]];
+
+    this.boxCounts = { red: 0, blue: 0, green: 0, yellow: 0, purple: 0 };
+    for (const q of init?.queues ?? []) for (const b of q.boxes) this.boxCounts[b.color]++;
+    if (this.totalBoxes() === 0) this.boxCounts.red = 2;
+    this.queueCount = init?.queues?.length || 3;
+
+    this.queues = (init?.queues ?? []).map((q) => q.boxes.map((b) => b.color));
+    this.queuesSig = this.boxRecipeSig();
     this.layout = init?.layout ?? null;
+    if (this.layout) this.layoutSig = this.distSig();
 
     this.root = document.createElement('div');
     this.root.className = 'overlay';
     this.root.style.background = 'linear-gradient(160deg, #1c1f2a 0%, #131520 100%)';
     parent.appendChild(this.root);
     this.buildShell();
-    this.showStage1();
+    this.showStage0();
   }
 
   // ---- shell ----------------------------------------------------------------
@@ -83,129 +99,133 @@ export class EditorApp {
 
   private onBack() {
     if (this.stage === 2) this.showStage1();
+    else if (this.stage === 1) this.showStage0();
     else this.cb.onExit();
   }
 
-  // ---- stage 1: queues ------------------------------------------------------
-
-  private sig(): string {
-    return JSON.stringify({ d: this.deckSlots, q: this.queues });
-  }
-
-  private showStage1() {
+  /** Capture work from the active dynamic component, then dispose it. */
+  private teardownDynamic() {
+    if (this.board) {
+      this.queues = this.board.getQueues();
+      this.queuesSig = this.boxRecipeSig();
+      this.board.dispose();
+      this.board = null;
+    }
     if (this.grid) {
-      this.captureLayout(); // preserve the arrangement when stepping back
+      this.layout = this.grid.getLayout();
+      this.layoutSig = this.distSig();
       this.grid.dispose();
       this.grid = null;
     }
-    this.stage = 1;
-    this.titleEl.textContent = 'Editor · 1. Queues';
-    this.backEl.textContent = '← Menu';
-    this.bodyEl.style.display = '';
-    this.bodyEl.style.overflowY = '';
-    this.bodyEl.style.padding = '';
+  }
+
+  private prepBody(flex: boolean) {
     this.bodyEl.innerHTML = '';
     this.bottomEl.innerHTML = '';
+    this.bodyEl.style.display = flex ? 'flex' : '';
+    this.bodyEl.style.flexDirection = flex ? 'column' : '';
+    this.bodyEl.style.overflowY = flex ? 'hidden' : '';
+    this.bodyEl.style.padding = flex ? '8px' : '';
+  }
 
-    // Deck slots + name
-    const card0 = el('div', 'ed-card');
-    const r0 = el('div', 'ed-row');
-    const nlbl = el('span', 'ed-label', 'Name');
+  // ---- signatures + recipe helpers ------------------------------------------
+
+  private boxRecipeSig(): string {
+    return JSON.stringify({ q: this.queueCount, b: this.boxCounts });
+  }
+  private distSig(): string {
+    return JSON.stringify(this.queues);
+  }
+  private totalBoxes(): number {
+    return COLOR_KEYS.reduce((a, c) => a + this.boxCounts[c], 0);
+  }
+  private recipeContainer(): ContainerColor[] {
+    return COLOR_KEYS.filter((c) => this.boxCounts[c] > 0).map((color) => ({
+      color,
+      balls: this.boxCounts[color] * GLOBAL_CHARGE,
+      caps: this.boxCounts[color],
+    }));
+  }
+  private queuesMatchRecipe(): boolean {
+    if (this.queues.length !== this.queueCount) return false;
+    const cnt: Record<string, number> = {};
+    for (const c of COLOR_KEYS) cnt[c] = 0;
+    for (const q of this.queues) for (const c of q) cnt[c]++;
+    return COLOR_KEYS.every((c) => cnt[c] === this.boxCounts[c]);
+  }
+  private seedQueues() {
+    const pool: ColorKey[] = [];
+    for (const c of COLOR_KEYS) for (let i = 0; i < this.boxCounts[c]; i++) pool.push(c);
+    const k = Math.max(1, this.queueCount);
+    const cols: ColorKey[][] = Array.from({ length: k }, () => []);
+    pool.forEach((c, i) => cols[i % k].push(c));
+    this.queues = cols;
+    this.queuesSig = this.boxRecipeSig();
+  }
+
+  // ---- stage 0: recipe ------------------------------------------------------
+
+  private showStage0() {
+    this.teardownDynamic();
+    this.stage = 0;
+    this.titleEl.textContent = 'Editor · 1. Recipe';
+    this.backEl.textContent = '← Menu';
+    this.prepBody(false);
+
+    const setup = el('div', 'ed-card');
+    const r1 = el('div', 'ed-row');
     const nameInput = document.createElement('input');
     nameInput.className = 'mini-num';
     nameInput.style.width = '150px';
     nameInput.value = this.name;
     nameInput.addEventListener('input', () => (this.name = nameInput.value));
-    const dlbl = el('span', 'ed-label', 'Deck slots');
-    const dInp = numInput(this.deckSlots, 1, 8, (v) => (this.deckSlots = v));
-    r0.append(nlbl, nameInput, dlbl, dInp);
-    card0.append(r0);
+    r1.append(el('span', 'ed-label', 'Name'), nameInput);
+    const r2 = el('div', 'ed-row');
+    r2.append(
+      el('span', 'ed-label', 'Deck slots'),
+      numInput(this.deckSlots, 1, 8, (v) => (this.deckSlots = v)),
+      el('span', 'ed-label', 'Queues'),
+      numInput(this.queueCount, 1, 6, (v) => {
+        this.queueCount = v;
+        this.updateStage0Status();
+      }),
+    );
+    setup.append(r1, r2);
 
-    // colour picker
-    const picker = el('div', 'ed-card');
-    const prow = el('div', 'ed-row');
-    const plabel = el('span', 'ed-label', 'Box colour');
-    const colorRow = el('div', 'color-row');
-    for (const c of COLOR_KEYS) {
-      const dot = document.createElement('div');
-      dot.className = 'color-dot' + (c === this.newColor ? ' active' : '');
-      dot.style.background = COLOR_CSS[c];
-      dot.addEventListener('click', () => {
-        this.newColor = c;
-        colorRow
-          .querySelectorAll('.color-dot')
-          .forEach((d, i) => d.classList.toggle('active', COLOR_KEYS[i] === c));
-      });
-      colorRow.appendChild(dot);
-    }
-    prow.append(plabel, colorRow, el('span', 'ed-label', `each box needs ${GLOBAL_CHARGE} balls`));
-    picker.append(prow);
-
-    const deckSec = section('Setup', () => card0);
-    const queuesSec = section('Queues (front box = leftmost)', () => {
-      const wrap = el('div');
-      wrap.appendChild(picker);
-      this.queues.forEach((q, qi) => wrap.appendChild(this.queueCard(q, qi)));
-      const addQ = btn('+ Add Queue', 'tool-btn', () => {
-        this.queues.push([]);
-        this.showStage1();
-      });
-      addQ.style.marginTop = '4px';
-      wrap.appendChild(addQ);
+    const counts = section('Boxes per colour', () => {
+      const wrap = el('div', 'ed-card');
+      for (const c of COLOR_KEYS) {
+        const row = el('div', 'ed-row');
+        const dot = document.createElement('div');
+        dot.className = 'color-dot active';
+        dot.style.background = COLOR_CSS[c];
+        dot.style.cursor = 'default';
+        row.append(
+          dot,
+          el('span', 'ed-label', c),
+          el('span', 'ed-spacer'),
+          numInput(this.boxCounts[c], 0, 20, (v) => {
+            this.boxCounts[c] = v;
+            this.updateStage0Status();
+          }),
+        );
+        wrap.append(row);
+      }
       return wrap;
     });
-    this.bodyEl.append(deckSec, queuesSec, this.containerSummary());
 
-    const next = btn('Next: Arrange container →', 'btn small', () => this.goStage2());
+    this.bodyEl.append(section('Setup', () => setup), counts, this.containerPreview());
+
+    const next = btn('Next: Arrange queues →', 'btn small', () => this.goStage1());
     next.style.flex = '1';
     this.bottomEl.append(next);
-
-    this.updateStage1Status();
+    this.updateStage0Status();
   }
 
-  private queueCard(q: ColorKey[], qi: number): HTMLElement {
-    const card = el('div', 'ed-card');
-    const row = el('div', 'ed-row');
-    row.append(el('span', 'ed-label', `Q${qi + 1}`));
-
-    const chips = el('div', 'queue-chips');
-    q.forEach((color, bi) => {
-      const chip = document.createElement('div');
-      chip.className = 'chip removable';
-      chip.style.background = COLOR_CSS[color];
-      chip.textContent = String(GLOBAL_CHARGE);
-      chip.title = `${color} · needs ${GLOBAL_CHARGE} balls (click to remove)`;
-      chip.addEventListener('click', () => {
-        q.splice(bi, 1);
-        this.showStage1();
-      });
-      chips.appendChild(chip);
-    });
-    if (q.length === 0) {
-      const empty = el('span', '', 'empty');
-      empty.style.color = 'var(--muted)';
-      empty.style.fontSize = '12px';
-      chips.appendChild(empty);
-    }
-
-    const addBox = btn('+ box', 'tool-btn', () => {
-      q.push(this.newColor);
-      this.showStage1();
-    });
-    const delQ = btn('✕', 'tool-btn', () => {
-      this.queues.splice(qi, 1);
-      if (this.queues.length === 0) this.queues = [[]];
-      this.showStage1();
-    });
-    row.append(chips, addBox, delQ);
-    card.append(row);
-    return card;
-  }
-
-  private containerSummary(): HTMLElement {
-    return section('Container (auto — derived from queues)', () => {
+  private containerPreview(): HTMLElement {
+    return section('Container (auto — derived)', () => {
       const wrap = el('div', 'ed-card');
-      const container = containerFromQueues(this.queuesDef(), GLOBAL_CHARGE);
+      const container = this.recipeContainer();
       if (container.length === 0) {
         wrap.append(el('span', 'ed-label', 'No boxes yet.'));
         return wrap;
@@ -225,47 +245,70 @@ export class EditorApp {
     });
   }
 
-  private updateStage1Status() {
-    const total = this.queues.reduce((a, q) => a + q.length, 0);
+  private updateStage0Status() {
+    const total = this.totalBoxes();
     this.statusEl.classList.remove('ok', 'bad');
     if (total === 0) {
       this.statusEl.classList.add('bad');
-      this.statusEl.textContent = 'Add at least one box to a queue, then arrange the container.';
+      this.statusEl.textContent = 'Add at least one box (set a colour count above).';
     } else {
       this.statusEl.classList.add('ok');
-      this.statusEl.textContent = `${total} boxes across ${this.queues.length} queues · charge ${GLOBAL_CHARGE}`;
+      this.statusEl.textContent = `${total} boxes · ${this.queueCount} queues · charge ${GLOBAL_CHARGE}`;
     }
+  }
+
+  // ---- stage 1: distribute --------------------------------------------------
+
+  private goStage1() {
+    if (this.totalBoxes() === 0) {
+      this.statusEl.classList.add('bad');
+      this.statusEl.textContent = 'Add at least one box first.';
+      return;
+    }
+    const reuse = this.queues.length > 0 && this.queuesSig === this.boxRecipeSig() && this.queuesMatchRecipe();
+    if (!reuse) this.seedQueues();
+    this.showStage1();
+  }
+
+  private showStage1() {
+    this.teardownDynamic();
+    this.stage = 1;
+    this.titleEl.textContent = 'Editor · 2. Queues';
+    this.backEl.textContent = '← Recipe';
+    this.prepBody(true);
+    this.statusEl.classList.remove('bad');
+    this.statusEl.classList.add('ok');
+    this.statusEl.textContent = 'Drag boxes between queues / reorder · top of a column = front (sent first).';
+
+    this.board = new QueueBoard(this.bodyEl, this.queues);
+
+    const next = btn('Next: Arrange container →', 'btn small', () => this.goStage2());
+    next.style.flex = '1';
+    this.bottomEl.append(next);
   }
 
   // ---- stage 2: container grid ----------------------------------------------
 
   private goStage2() {
-    const total = this.queues.reduce((a, q) => a + q.length, 0);
-    if (total === 0) {
-      this.statusEl.classList.add('bad');
-      this.statusEl.textContent = 'Add at least one box first.';
-      return;
+    if (this.board) {
+      this.queues = this.board.getQueues();
+      this.queuesSig = this.boxRecipeSig();
     }
     const container = containerFromQueues(this.queuesDef(), GLOBAL_CHARGE);
-    // reuse the saved layout only if stage 1 is unchanged and it still matches
-    const reuse = this.layout && this.sig() === this.layoutSig && layoutMatches(this.layout, container);
+    const reuse = this.layout && this.distSig() === this.layoutSig && layoutMatches(this.layout, container);
     if (!reuse) {
       this.layout = defaultClusteredLayout(container);
-      this.layoutSig = this.sig();
+      this.layoutSig = this.distSig();
     }
     this.showStage2(container);
   }
 
   private showStage2(container = containerFromQueues(this.queuesDef(), GLOBAL_CHARGE)) {
+    this.teardownDynamic();
     this.stage = 2;
-    this.titleEl.textContent = 'Editor · 2. Container';
+    this.titleEl.textContent = 'Editor · 3. Container';
     this.backEl.textContent = '← Queues';
-    this.bodyEl.innerHTML = '';
-    this.bottomEl.innerHTML = '';
-    this.bodyEl.style.display = 'flex';
-    this.bodyEl.style.flexDirection = 'column';
-    this.bodyEl.style.overflowY = 'hidden';
-    this.bodyEl.style.padding = '8px';
+    this.prepBody(true);
     this.statusEl.classList.remove('bad');
     this.statusEl.classList.add('ok');
     this.statusEl.textContent =
@@ -282,13 +325,6 @@ export class EditorApp {
     this.bottomEl.append(test, copy, dl, save);
   }
 
-  private captureLayout() {
-    if (this.grid) {
-      this.layout = this.grid.getLayout();
-      this.layoutSig = this.sig();
-    }
-  }
-
   // ---- snapshot / persistence ----------------------------------------------
 
   private queuesDef() {
@@ -296,7 +332,7 @@ export class EditorApp {
   }
 
   private snapshot(): LevelData {
-    if (this.stage === 2) this.captureLayout();
+    this.teardownDynamic(); // pull latest from whichever component is open
     const container = containerFromQueues(this.queuesDef(), GLOBAL_CHARGE);
     const layout = this.layout && layoutMatches(this.layout, container) ? this.layout : defaultClusteredLayout(container);
     return {
@@ -310,7 +346,9 @@ export class EditorApp {
   }
 
   private save() {
-    saveCustomLevel(this.snapshot());
+    const snap = this.snapshot();
+    saveCustomLevel(snap);
+    this.showStage2(snap.container); // teardown disposed the grid; rebuild it
     this.flash('Saved to “Your Levels”.');
   }
 
@@ -328,17 +366,20 @@ export class EditorApp {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+    this.showStage2(lv.container);
     this.flash('Downloaded — drop into src/levels/contributed/ to ship it.');
   }
 
   private showJson() {
     if (this.modalEl) return;
+    const snap = this.snapshot();
+    this.showStage2(snap.container);
     const modal = el('div', 'modal');
     const card = el('div', 'modal-card');
     card.innerHTML = '<h2>Level JSON</h2><p>Copy and save as a .json file.</p>';
     const ta = document.createElement('textarea');
     ta.className = 'json';
-    ta.value = JSON.stringify(this.snapshot(), null, 2);
+    ta.value = JSON.stringify(snap, null, 2);
     ta.readOnly = true;
     const actions = el('div', 'modal-actions');
     actions.appendChild(
@@ -368,6 +409,8 @@ export class EditorApp {
   dispose() {
     this.modalEl?.remove();
     this.modalEl = null;
+    this.board?.dispose();
+    this.board = null;
     this.grid?.dispose();
     this.grid = null;
     this.root.remove();
