@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { LevelData, ColorKey } from '../shared/types';
 import { COLOR_KEYS } from '../shared/colors';
+import { defaultClusteredLayout, layoutMatches, GRID_COLS } from '../shared/containerLayout';
 import { Physics } from './Physics';
 import { Resources } from './Resources';
 import { Scenery } from './Scenery';
@@ -121,32 +122,25 @@ export class GameApp {
   }
 
   private spawnPieces(level: LevelData) {
-    // Build the full list of loose pieces, then drop them on a loose grid.
-    type Spec = { type: 'ball' | 'cap'; color: ColorKey };
-    const specs: Spec[] = [];
-    for (const c of level.container) {
-      for (let i = 0; i < c.balls; i++) specs.push({ type: 'ball', color: c.color });
-      for (let i = 0; i < c.caps; i++) specs.push({ type: 'cap', color: c.color });
-    }
-    shuffle(specs);
+    // Use the designer's arranged layout as starting positions (physics then
+    // takes over). If the level has none, fall back to a tidy clustered layout.
+    const layout =
+      layoutMatches(level.layout, level.container) && level.layout
+        ? level.layout
+        : defaultClusteredLayout(level.container);
 
-    const cell = 0.8;
-    const innerLeft = JAR.left + 0.5;
-    const innerRight = JAR.right - 0.5;
-    const cols = Math.max(1, Math.floor((innerRight - innerLeft) / cell) + 1);
-    specs.forEach((s, i) => {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      const x = innerLeft + col * ((innerRight - innerLeft) / Math.max(1, cols - 1)) + rand(-0.1, 0.1);
-      const y = JAR.floorY + 0.6 + row * cell + rand(-0.08, 0.08);
+    for (const p of layout) {
+      const { x, y } = cellToWorld(p.col, p.row, p.type);
+      const jx = x + rand(-0.03, 0.03);
+      const jy = y + rand(-0.03, 0.03);
       const body =
-        s.type === 'ball'
-          ? this.physics.addCircle(x, y, BALL_RADIUS)
-          : this.physics.addBox(x, y, CAP_SIZE);
-      const piece = new Piece(s.type, s.color, body, this.resources);
+        p.type === 'ball'
+          ? this.physics.addCircle(jx, jy, BALL_RADIUS)
+          : this.physics.addBox(jx, jy, CAP_SIZE);
+      const piece = new Piece(p.type, p.color, body, this.resources);
       this.pieces.push(piece);
       this.scene.add(piece.mesh);
-    });
+    }
   }
 
   private buildQueues(level: LevelData) {
@@ -448,10 +442,16 @@ function rand(a: number, b: number): number {
   return a + Math.random() * (b - a);
 }
 
-function shuffle<T>(arr: T[]): T[] {
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [arr[i], arr[j]] = [arr[j], arr[i]];
+const GRID_MARGIN = 0.15;
+
+/** Map a container-grid cell to a world spawn position inside the jar. */
+function cellToWorld(col: number, row: number, type: 'ball' | 'cap'): { x: number; y: number } {
+  const usableW = JAR.right - JAR.left - 2 * GRID_MARGIN;
+  const cell = usableW / GRID_COLS;
+  const x0 = JAR.left + GRID_MARGIN;
+  const y0 = JAR.floorY + 0.2;
+  if (type === 'cap') {
+    return { x: x0 + (col + 1) * cell, y: y0 + (row + 1) * cell };
   }
-  return arr;
+  return { x: x0 + (col + 0.5) * cell, y: y0 + (row + 0.5) * cell };
 }

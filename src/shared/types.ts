@@ -19,11 +19,27 @@ export interface ContainerColor {
   caps: number;
 }
 
+/**
+ * One piece placed on the container grid (Stage-2 editor output). A ball fills
+ * one cell; a cap fills a 2×2 block anchored at (col,row) as its bottom-left.
+ * row 0 is the bottom of the jar. These are starting positions — physics takes
+ * over once the level begins.
+ */
+export interface PlacedPiece {
+  type: 'ball' | 'cap';
+  color: ColorKey;
+  col: number;
+  row: number;
+}
+
 export interface LevelData {
   id: string;
   name: string;
   /** number of deck slots available at once */
   deckSlots: number;
   queues: QueueDef[];
+  /** derived (zero-sum) counts: balls = 10×boxes(color), caps = boxes(color) */
   container: ContainerColor[];
+  /** optional arranged start layout; if absent the game clusters by colour */
+  layout?: PlacedPiece[];
 }
