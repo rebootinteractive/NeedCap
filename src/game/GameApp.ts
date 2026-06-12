@@ -17,11 +17,14 @@ import {
   QUEUE_TOP_Y,
   QUEUE_GAP,
   BALL_RADIUS,
+  CAP_SIZE,
   PULL_COOLDOWN,
   BALL_GLIDE,
   CAP_GLIDE,
   SEND_GLIDE,
   SHIFT_GLIDE,
+  VIEW_CENTER_Y,
+  VIEW_HALF_HEIGHT,
 } from './config';
 
 export interface GameCallbacks {
@@ -94,17 +97,17 @@ export class GameApp {
   private setupLights() {
     this.scene.add(new THREE.HemisphereLight(0xbfd3ff, 0x202434, 0.55));
     const dir = new THREE.DirectionalLight(0xffffff, 1.05);
-    dir.position.set(4, 13, 9);
+    dir.position.set(5, 20, 11);
     dir.castShadow = true;
     dir.shadow.mapSize.set(2048, 2048);
     dir.shadow.camera.near = 0.5;
-    dir.shadow.camera.far = 40;
+    dir.shadow.camera.far = 50;
     dir.shadow.camera.left = -6;
     dir.shadow.camera.right = 6;
-    dir.shadow.camera.top = 14;
+    dir.shadow.camera.top = 17;
     dir.shadow.camera.bottom = -2;
     dir.shadow.bias = -0.0004;
-    dir.target.position.set(0, 6, 0);
+    dir.target.position.set(0, 7.5, 0);
     this.scene.add(dir);
     this.scene.add(dir.target);
     this.light = dir;
@@ -139,7 +142,7 @@ export class GameApp {
       const body =
         s.type === 'ball'
           ? this.physics.addCircle(x, y, BALL_RADIUS)
-          : this.physics.addBox(x, y, 1.0);
+          : this.physics.addBox(x, y, CAP_SIZE);
       const piece = new Piece(s.type, s.color, body, this.resources);
       this.pieces.push(piece);
       this.scene.add(piece.mesh);
@@ -397,8 +400,8 @@ export class GameApp {
   }
 
   private fitCamera() {
-    const centerY = 6.4;
-    const halfH = 6.9;
+    const centerY = VIEW_CENTER_Y;
+    const halfH = VIEW_HALF_HEIGHT;
     const halfW = HALF_WIDTH + 0.4;
     const fovV = THREE.MathUtils.degToRad(this.camera.fov);
     const fovH = 2 * Math.atan(Math.tan(fovV / 2) * this.camera.aspect);

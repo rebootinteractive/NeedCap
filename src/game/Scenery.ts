@@ -27,7 +27,7 @@ export class Scenery {
   private build() {
     // Backdrop — receives shadows for the toy-like look.
     const backMat = new THREE.MeshStandardMaterial({ color: 0x171a24, roughness: 1 });
-    const back = this.add(new THREE.PlaneGeometry(HALF_WIDTH * 2 + 2.4, 16), backMat, 0, 6.4, -0.7);
+    const back = this.add(new THREE.PlaneGeometry(HALF_WIDTH * 2 + 2.4, 22), backMat, 0, 7.5, -0.7);
     back.receiveShadow = true;
 
     // Jar side walls (slim glassy pillars).

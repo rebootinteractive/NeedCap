@@ -1,5 +1,6 @@
 import type { LevelData, ColorKey } from '../shared/types';
 import { COLOR_KEYS, COLOR_CSS } from '../shared/colors';
+import { GLOBAL_CHARGE } from '../game/config';
 import { saveCustomLevel } from '../ui/storage';
 
 export interface EditorCallbacks {
@@ -23,7 +24,6 @@ export class EditorApp {
   private container: ContainerRow[];
 
   private newColor: ColorKey = 'red';
-  private newCharge = 3;
 
   private bodyEl!: HTMLDivElement;
   private statusEl!: HTMLDivElement;
@@ -35,7 +35,7 @@ export class EditorApp {
     this.name = init?.name ?? 'New Level';
     this.deckSlots = init?.deckSlots ?? 4;
     this.queues = (init?.queues ?? [{ boxes: [] }]).map((q) =>
-      q.boxes.map((b) => ({ color: b.color, charge: b.charge })),
+      q.boxes.map((b) => ({ color: b.color, charge: GLOBAL_CHARGE })),
     );
     if (this.queues.length === 0) this.queues = [[]];
     this.container = COLOR_KEYS.map((color) => {
@@ -126,7 +126,7 @@ export class EditorApp {
     prow.className = 'ed-row';
     const plabel = document.createElement('span');
     plabel.className = 'ed-label';
-    plabel.textContent = 'New box';
+    plabel.textContent = 'Box colour';
     const colorRow = document.createElement('div');
     colorRow.className = 'color-row';
     for (const c of COLOR_KEYS) {
@@ -141,14 +141,10 @@ export class EditorApp {
       });
       colorRow.appendChild(dot);
     }
-    const chargeLabel = document.createElement('span');
-    chargeLabel.className = 'ed-label';
-    chargeLabel.textContent = 'charge';
-    const chargeInp = numInput(this.newCharge, 1, 12, (v) => {
-      this.newCharge = v;
-    });
-    chargeInp.style.maxWidth = '56px';
-    prow.append(plabel, colorRow, chargeLabel, chargeInp);
+    const hint = document.createElement('span');
+    hint.className = 'ed-label';
+    hint.textContent = `each box needs ${GLOBAL_CHARGE} balls`;
+    prow.append(plabel, colorRow, hint);
     picker.appendChild(prow);
 
     // Queues section
@@ -193,8 +189,8 @@ export class EditorApp {
       const chip = document.createElement('div');
       chip.className = 'chip removable';
       chip.style.background = COLOR_CSS[b.color];
-      chip.textContent = String(b.charge);
-      chip.title = `${b.color} · charge ${b.charge} (click to remove)`;
+      chip.textContent = String(GLOBAL_CHARGE);
+      chip.title = `${b.color} · needs ${GLOBAL_CHARGE} balls (click to remove)`;
       chip.addEventListener('click', () => {
         q.splice(bi, 1);
         this.renderBody();
@@ -211,7 +207,7 @@ export class EditorApp {
     }
 
     const addBox = btn('+ box', 'tool-btn', () => {
-      q.push({ color: this.newColor, charge: this.newCharge });
+      q.push({ color: this.newColor, charge: GLOBAL_CHARGE });
       this.renderBody();
       this.updateStatus();
     });
@@ -270,7 +266,7 @@ export class EditorApp {
     let totalBoxes = 0;
     for (const q of this.queues)
       for (const b of q) {
-        demandBalls[b.color] += b.charge;
+        demandBalls[b.color] += GLOBAL_CHARGE;
         demandCaps[b.color] += 1;
         totalBoxes++;
       }
@@ -302,7 +298,7 @@ export class EditorApp {
       id: this.id,
       name: this.name.trim() || 'Untitled',
       deckSlots: this.deckSlots,
-      queues: this.queues.map((q) => ({ boxes: q.map((b) => ({ color: b.color, charge: b.charge })) })),
+      queues: this.queues.map((q) => ({ boxes: q.map((b) => ({ color: b.color, charge: GLOBAL_CHARGE })) })),
       container: this.container
         .filter((c) => c.balls > 0 || c.caps > 0)
         .map((c) => ({ color: c.color, balls: c.balls, caps: c.caps })),
