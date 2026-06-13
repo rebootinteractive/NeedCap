@@ -11,7 +11,13 @@ export class Physics {
   private walls: Matter.Body[] = [];
 
   constructor() {
-    this.engine = Matter.Engine.create();
+    // More solver iterations → contacts in tall stacks resolve firmly instead
+    // of letting bodies sink into each other (the "squashed" look).
+    this.engine = Matter.Engine.create({
+      positionIterations: 12,
+      velocityIterations: 8,
+      constraintIterations: 4,
+    });
     this.world = this.engine.world;
     this.engine.gravity.x = 0;
     this.engine.gravity.y = -GRAVITY;
