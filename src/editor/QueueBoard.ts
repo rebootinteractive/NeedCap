@@ -62,6 +62,20 @@ export class QueueBoard {
     return this.cols.map((c) => c.map((t) => t.color));
   }
 
+  /** Re-deal all boxes randomly across the same number of queues. */
+  shuffle() {
+    const tiles: Tile[] = this.cols.flat();
+    for (let i = tiles.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [tiles[i], tiles[j]] = [tiles[j], tiles[i]];
+    }
+    const k = this.cols.length;
+    const cols: Tile[][] = Array.from({ length: k }, () => []);
+    tiles.forEach((t, i) => cols[i % k].push(t));
+    this.cols = cols;
+    this.fit();
+  }
+
   // ---- sizing ---------------------------------------------------------------
 
   private fit() {

@@ -7,6 +7,7 @@ import {
   totalCounts,
   containerFromQueues,
   defaultClusteredLayout,
+  shuffledLayout,
   layoutMatches,
 } from '../shared/containerLayout';
 import { saveCustomLevel } from '../ui/storage';
@@ -40,6 +41,7 @@ export class EditorApp {
   private stage: 0 | 1 | 2 = 0;
   private board: QueueBoard | null = null;
   private grid: ContainerGrid | null = null;
+  private clustering = 1;
 
   // shell
   private titleEl!: HTMLDivElement;
@@ -280,6 +282,10 @@ export class EditorApp {
     this.statusEl.classList.add('ok');
     this.statusEl.textContent = 'Drag boxes between queues / reorder · top of a column = front (sent first).';
 
+    const bar = makeBar();
+    bar.append(btn('⤮ Shuffle queues', 'btn ghost small', () => this.board?.shuffle()));
+    this.bodyEl.append(bar);
+
     this.board = new QueueBoard(this.bodyEl, this.queues);
 
     const next = btn('Next: Arrange container →', 'btn small', () => this.goStage2());
@@ -316,6 +322,26 @@ export class EditorApp {
 
     const { balls, caps } = totalCounts(container);
     const rows = gridRows(balls, caps);
+
+    const bar = makeBar();
+    bar.append(el('span', 'ed-label', 'Clustering'));
+    const slider = document.createElement('input');
+    slider.type = 'range';
+    slider.min = '0';
+    slider.max = '1';
+    slider.step = '0.05';
+    slider.value = String(this.clustering);
+    slider.style.flex = '1';
+    const val = el('span', 'ed-label', this.clustering.toFixed(2));
+    val.style.minWidth = '34px';
+    slider.addEventListener('input', () => {
+      this.clustering = parseFloat(slider.value);
+      val.textContent = this.clustering.toFixed(2);
+      this.reshuffleContainer(container);
+    });
+    bar.append(slider, val, btn('⤮ Shuffle', 'btn ghost small', () => this.reshuffleContainer(container)));
+    this.bodyEl.append(bar);
+
     this.grid = new ContainerGrid(this.bodyEl, this.layout ?? defaultClusteredLayout(container), GRID_COLS, rows);
 
     const test = btn('▶ Test', 'btn small', () => this.cb.onTestPlay(this.snapshot()));
@@ -323,6 +349,12 @@ export class EditorApp {
     const dl = btn('↓ Download', 'btn ghost small', () => this.downloadJson());
     const save = btn('Save', 'btn small', () => this.save());
     this.bottomEl.append(test, copy, dl, save);
+  }
+
+  private reshuffleContainer(container: ContainerColor[]) {
+    this.layout = shuffledLayout(container, this.clustering);
+    this.layoutSig = this.distSig();
+    this.grid?.setLayout(this.layout);
   }
 
   // ---- snapshot / persistence ----------------------------------------------
@@ -424,6 +456,16 @@ function el(tag: string, cls = '', text = ''): HTMLDivElement {
   if (cls) e.className = cls;
   if (text) e.textContent = text;
   return e;
+}
+
+function makeBar(): HTMLDivElement {
+  const bar = document.createElement('div');
+  bar.style.display = 'flex';
+  bar.style.alignItems = 'center';
+  bar.style.gap = '8px';
+  bar.style.flex = '0 0 auto';
+  bar.style.padding = '2px 2px 8px';
+  return bar;
 }
 
 function btn(text: string, cls: string, onClick: () => void): HTMLButtonElement {

@@ -40,13 +40,12 @@ export function containerFromQueues(queues: QueueDef[], charge: number): Contain
   }));
 }
 
-/**
- * A tidy starting arrangement: fill the grid bottom-up, colour by colour, caps
- * before that colour's balls — so each colour ends up clustered together.
- */
-export function defaultClusteredLayout(container: ContainerColor[]): PlacedPiece[] {
-  const { balls, caps } = totalCounts(container);
-  const rows = gridRows(balls, caps);
+function clamp01(x: number): number {
+  return Math.max(0, Math.min(1, x));
+}
+
+/** Place caps (bottom, by colour) then the given ball-colour order, bottom-up. */
+function placeInOrder(capColors: ColorKey[], ballOrder: ColorKey[], rows: number): PlacedPiece[] {
   const occ: boolean[][] = Array.from({ length: rows }, () => new Array(GRID_COLS).fill(false));
   const out: PlacedPiece[] = [];
 
@@ -62,33 +61,66 @@ export function defaultClusteredLayout(container: ContainerColor[]): PlacedPiece
     return null;
   };
 
-  // order colours by COLOR_KEYS for stable clustering
-  const ordered = COLOR_KEYS.map((color) => container.find((c) => c.color === color)).filter(
-    (c): c is ContainerColor => !!c,
-  );
-
-  for (const c of ordered) {
-    for (let i = 0; i < c.caps; i++) {
-      const spot = findCap() ?? findBall();
-      if (!spot) continue;
-      const [col, row] = spot;
-      occ[row][col] = true;
-      if (row + 1 < rows && col + 1 < GRID_COLS) {
-        occ[row][col + 1] = true;
-        occ[row + 1][col] = true;
-        occ[row + 1][col + 1] = true;
-      }
-      out.push({ type: 'cap', color: c.color, col, row });
+  for (const color of capColors) {
+    const spot = findCap() ?? findBall();
+    if (!spot) continue;
+    const [col, row] = spot;
+    occ[row][col] = true;
+    if (row + 1 < rows && col + 1 < GRID_COLS) {
+      occ[row][col + 1] = true;
+      occ[row + 1][col] = true;
+      occ[row + 1][col + 1] = true;
     }
-    for (let i = 0; i < c.balls; i++) {
-      const spot = findBall();
-      if (!spot) continue;
-      const [col, row] = spot;
-      occ[row][col] = true;
-      out.push({ type: 'ball', color: c.color, col, row });
-    }
+    out.push({ type: 'cap', color, col, row });
+  }
+  for (const color of ballOrder) {
+    const spot = findBall();
+    if (!spot) continue;
+    const [col, row] = spot;
+    occ[row][col] = true;
+    out.push({ type: 'ball', color, col, row });
   }
   return out;
+}
+
+/**
+ * Arrange the container's pieces, controlled by `clustering` (0..1):
+ *   1 → balls fully grouped by colour (contiguous bands)
+ *   0 → balls fully mixed (no colour clustering)
+ * Caps always settle along the bottom, grouped by colour.
+ */
+export function shuffledLayout(
+  container: ContainerColor[],
+  clustering = 1,
+  rng: () => number = Math.random,
+): PlacedPiece[] {
+  const { balls, caps } = totalCounts(container);
+  const rows = gridRows(balls, caps);
+
+  const present = COLOR_KEYS.filter((color) => {
+    const c = container.find((x) => x.color === color);
+    return c && (c.balls > 0 || c.caps > 0);
+  });
+  const rank: Record<string, number> = {};
+  present.forEach((color, i) => (rank[color] = i));
+
+  const capColors: ColorKey[] = [];
+  const keyed: { color: ColorKey; key: number }[] = [];
+  // noise spans the whole colour range at clustering=0 (fully mixed) and
+  // vanishes at clustering=1 (each colour stays a contiguous band).
+  const spread = (1 - clamp01(clustering)) * Math.max(1, present.length);
+  for (const color of present) {
+    const c = container.find((x) => x.color === color)!;
+    for (let i = 0; i < c.caps; i++) capColors.push(color);
+    for (let i = 0; i < c.balls; i++) keyed.push({ color, key: rank[color] + rng() * spread });
+  }
+  keyed.sort((a, b) => a.key - b.key);
+  return placeInOrder(capColors, keyed.map((k) => k.color), rows);
+}
+
+/** Tidy default: fully clustered by colour. */
+export function defaultClusteredLayout(container: ContainerColor[]): PlacedPiece[] {
+  return shuffledLayout(container, 1);
 }
 
 /** Does a layout's piece multiset match the container counts exactly? */

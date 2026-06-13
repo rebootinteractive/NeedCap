@@ -74,6 +74,16 @@ export class ContainerGrid {
     return this.pieces.map((p) => ({ type: p.type, color: p.color, col: p.col, row: p.row }));
   }
 
+  /** Replace all pieces (e.g. after a shuffle) and redraw. */
+  setLayout(layout: PlacedPiece[]) {
+    let id = 1;
+    this.pieces = layout.map((p) => ({ id: id++, type: p.type, color: p.color, col: p.col, row: p.row }));
+    this.selection.clear();
+    this.mode = 'none';
+    this.dragIds.clear();
+    this.draw();
+  }
+
   // ---- layout / sizing ------------------------------------------------------
 
   private fit() {
