@@ -44,8 +44,13 @@ function clamp01(x: number): number {
   return Math.max(0, Math.min(1, x));
 }
 
-/** Place caps (bottom, by colour) then the given ball-colour order, bottom-up. */
-function placeInOrder(capColors: ColorKey[], ballOrder: ColorKey[], rows: number): PlacedPiece[] {
+interface Piece2 {
+  type: 'ball' | 'cap';
+  color: ColorKey;
+}
+
+/** Place a flat sequence of pieces row-major bottom-up (balls → cell, caps → 2×2). */
+function placeSequence(seq: Piece2[], rows: number): PlacedPiece[] {
   const occ: boolean[][] = Array.from({ length: rows }, () => new Array(GRID_COLS).fill(false));
   const out: PlacedPiece[] = [];
 
@@ -61,33 +66,39 @@ function placeInOrder(capColors: ColorKey[], ballOrder: ColorKey[], rows: number
     return null;
   };
 
-  for (const color of capColors) {
-    const spot = findCap() ?? findBall();
-    if (!spot) continue;
-    const [col, row] = spot;
-    occ[row][col] = true;
-    if (row + 1 < rows && col + 1 < GRID_COLS) {
-      occ[row][col + 1] = true;
-      occ[row + 1][col] = true;
-      occ[row + 1][col + 1] = true;
+  for (const p of seq) {
+    if (p.type === 'cap') {
+      const spot = findCap() ?? findBall();
+      if (!spot) continue;
+      const [col, row] = spot;
+      occ[row][col] = true;
+      if (row + 1 < rows && col + 1 < GRID_COLS) {
+        occ[row][col + 1] = true;
+        occ[row + 1][col] = true;
+        occ[row + 1][col + 1] = true;
+      }
+      out.push({ type: 'cap', color: p.color, col, row });
+    } else {
+      const spot = findBall();
+      if (!spot) continue;
+      const [col, row] = spot;
+      occ[row][col] = true;
+      out.push({ type: 'ball', color: p.color, col, row });
     }
-    out.push({ type: 'cap', color, col, row });
-  }
-  for (const color of ballOrder) {
-    const spot = findBall();
-    if (!spot) continue;
-    const [col, row] = spot;
-    occ[row][col] = true;
-    out.push({ type: 'ball', color, col, row });
   }
   return out;
 }
 
+type Unit = { kind: 'cluster'; color: ColorKey; count: number } | { kind: 'cap'; color: ColorKey };
+
 /**
- * Arrange the container's pieces, controlled by `clustering` (0..1):
- *   1 → balls fully grouped by colour (contiguous bands)
- *   0 → balls fully mixed (no colour clustering)
- * Caps always settle along the bottom, grouped by colour.
+ * Arrange the container, controlled by `clustering` (0..1):
+ *   - each colour's balls are split into clusters of size ≈ clustering × (that
+ *     colour's ball count): clustering=1 → one big cluster per colour;
+ *     clustering=0 → every ball is its own (size-1) cluster.
+ *   - every cap is its own unit.
+ *   - all clusters and caps are then shuffled and laid onto the board, so caps
+ *     end up scattered among the balls.
  */
 export function shuffledLayout(
   container: ContainerColor[],
@@ -96,26 +107,34 @@ export function shuffledLayout(
 ): PlacedPiece[] {
   const { balls, caps } = totalCounts(container);
   const rows = gridRows(balls, caps);
+  const k = clamp01(clustering);
 
-  const present = COLOR_KEYS.filter((color) => {
+  const units: Unit[] = [];
+  for (const color of COLOR_KEYS) {
     const c = container.find((x) => x.color === color);
-    return c && (c.balls > 0 || c.caps > 0);
-  });
-  const rank: Record<string, number> = {};
-  present.forEach((color, i) => (rank[color] = i));
-
-  const capColors: ColorKey[] = [];
-  const keyed: { color: ColorKey; key: number }[] = [];
-  // noise spans the whole colour range at clustering=0 (fully mixed) and
-  // vanishes at clustering=1 (each colour stays a contiguous band).
-  const spread = (1 - clamp01(clustering)) * Math.max(1, present.length);
-  for (const color of present) {
-    const c = container.find((x) => x.color === color)!;
-    for (let i = 0; i < c.caps; i++) capColors.push(color);
-    for (let i = 0; i < c.balls; i++) keyed.push({ color, key: rank[color] + rng() * spread });
+    if (!c) continue;
+    const clusterSize = Math.max(1, Math.round(k * c.balls));
+    let remaining = c.balls;
+    while (remaining > 0) {
+      const n = Math.min(clusterSize, remaining);
+      units.push({ kind: 'cluster', color, count: n });
+      remaining -= n;
+    }
+    for (let i = 0; i < c.caps; i++) units.push({ kind: 'cap', color });
   }
-  keyed.sort((a, b) => a.key - b.key);
-  return placeInOrder(capColors, keyed.map((k) => k.color), rows);
+
+  // shuffle the units (clusters + caps) across the board
+  for (let i = units.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [units[i], units[j]] = [units[j], units[i]];
+  }
+
+  const seq: Piece2[] = [];
+  for (const u of units) {
+    if (u.kind === 'cap') seq.push({ type: 'cap', color: u.color });
+    else for (let i = 0; i < u.count; i++) seq.push({ type: 'ball', color: u.color });
+  }
+  return placeSequence(seq, rows);
 }
 
 /** Tidy default: fully clustered by colour. */
