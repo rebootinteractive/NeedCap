@@ -18,7 +18,9 @@ export const JAR = {
   left: -3.0,
   right: 3.0,
   floorY: 4.6,
-  topY: 14.6,
+  // baseline wall top — sits above the camera frame so the jar runs off-screen;
+  // GameApp raises it further when a level's pieces spawn higher.
+  topY: 18.0,
   wall: 0.18,
   pullLineY: 5.95, // pieces with center below this line are grabbable
 };

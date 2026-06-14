@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { LevelData, ColorKey } from '../shared/types';
+import type { LevelData, ColorKey, PlacedPiece } from '../shared/types';
 import { COLOR_KEYS } from '../shared/colors';
 import { defaultClusteredLayout, layoutMatches, GRID_COLS } from '../shared/containerLayout';
 import { Physics } from './Physics';
@@ -46,9 +46,9 @@ export class GameApp {
   private clock = new THREE.Clock();
   private resizeObserver: ResizeObserver;
 
-  private physics = new Physics();
+  private physics!: Physics;
   private resources = new Resources();
-  private scenery = new Scenery();
+  private scenery!: Scenery;
 
   private pieces: Piece[] = [];
   private queues: Box[][] = [];
@@ -71,11 +71,22 @@ export class GameApp {
     parent.appendChild(this.renderer.domElement);
 
     this.camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
-    this.setupLights();
-    this.scene.add(this.scenery.group);
 
-    this.layout(cb.level);
-    this.spawnPieces(cb.level);
+    // Decide how tall the jar walls must be so nothing spawns above them and
+    // escapes sideways. The top extends off-screen for big levels.
+    const pieceLayout = this.computeLayout(cb.level);
+    let maxRow = 0;
+    for (const p of pieceLayout) maxRow = Math.max(maxRow, p.type === 'cap' ? p.row + 1 : p.row);
+    const neededTop = cellToWorld(0, maxRow, 'ball').y + 2.0;
+    const wallTop = Math.max(JAR.topY, neededTop);
+
+    this.physics = new Physics(wallTop);
+    this.scenery = new Scenery(wallTop);
+    this.scene.add(this.scenery.group);
+    this.setupLights();
+
+    this.setupDeckQueues(cb.level);
+    this.spawnFromLayout(pieceLayout);
     this.buildQueues(cb.level);
 
     this.input = new Input(this.renderer.domElement, this.camera, (p) => this.onTap(p));
@@ -114,21 +125,21 @@ export class GameApp {
     this.light = dir;
   }
 
-  private layout(level: LevelData) {
+  private setupDeckQueues(level: LevelData) {
     const slots = Math.max(1, level.deckSlots);
     this.deck = new Array(slots).fill(null);
     this.deckX = spread(slots, HALF_WIDTH * 2 - BOX_SIZE - 0.2);
     this.queueX = spread(level.queues.length, HALF_WIDTH * 2 - BOX_SIZE - 0.5);
   }
 
-  private spawnPieces(level: LevelData) {
-    // Use the designer's arranged layout as starting positions (physics then
-    // takes over). If the level has none, fall back to a tidy clustered layout.
-    const layout =
-      layoutMatches(level.layout, level.container) && level.layout
-        ? level.layout
-        : defaultClusteredLayout(level.container);
+  /** The designer's arranged layout, or a tidy clustered fallback. */
+  private computeLayout(level: LevelData): PlacedPiece[] {
+    return layoutMatches(level.layout, level.container) && level.layout
+      ? level.layout
+      : defaultClusteredLayout(level.container);
+  }
 
+  private spawnFromLayout(layout: PlacedPiece[]) {
     for (const p of layout) {
       const { x, y } = cellToWorld(p.col, p.row, p.type);
       const jx = x + rand(-0.03, 0.03);

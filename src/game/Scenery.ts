@@ -11,7 +11,7 @@ export class Scenery {
   private mats: THREE.Material[] = [];
   pullLineMat!: THREE.MeshBasicMaterial;
 
-  constructor() {
+  constructor(private topY: number = JAR.topY) {
     this.build();
   }
 
@@ -25,9 +25,11 @@ export class Scenery {
   }
 
   private build() {
-    // Backdrop — receives shadows for the toy-like look.
+    // Backdrop — receives shadows for the toy-like look. Tall enough to cover
+    // the whole jar even when the walls run off-screen.
+    const backH = this.topY + 8;
     const backMat = new THREE.MeshStandardMaterial({ color: 0x171a24, roughness: 1 });
-    const back = this.add(new THREE.PlaneGeometry(HALF_WIDTH * 2 + 2.4, 22), backMat, 0, 7.5, -0.7);
+    const back = this.add(new THREE.PlaneGeometry(HALF_WIDTH * 2 + 2.4, backH), backMat, 0, this.topY / 2, -0.7);
     back.receiveShadow = true;
 
     // Jar side walls (slim glassy pillars).
@@ -38,8 +40,8 @@ export class Scenery {
       transparent: true,
       opacity: 0.55,
     });
-    const h = JAR.topY - JAR.floorY;
-    const cy = (JAR.topY + JAR.floorY) / 2;
+    const h = this.topY - JAR.floorY;
+    const cy = (this.topY + JAR.floorY) / 2;
     const lw = this.add(new THREE.BoxGeometry(JAR.wall, h, 0.9), wallMat, JAR.left, cy, 0);
     lw.castShadow = false;
     const rw = this.add(new THREE.BoxGeometry(JAR.wall, h, 0.9), wallMat, JAR.right, cy, 0);

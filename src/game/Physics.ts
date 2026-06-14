@@ -10,7 +10,7 @@ export class Physics {
   readonly world: Matter.World;
   private walls: Matter.Body[] = [];
 
-  constructor() {
+  constructor(private wallTopY: number = JAR.topY) {
     // More solver iterations → contacts in tall stacks resolve firmly instead
     // of letting bodies sink into each other (the "squashed" look).
     this.engine = Matter.Engine.create({
@@ -30,7 +30,7 @@ export class Physics {
     const left = JAR.left * SCALE;
     const right = JAR.right * SCALE;
     const floor = JAR.floorY * SCALE;
-    const top = JAR.topY * SCALE;
+    const top = this.wallTopY * SCALE;
     const w = right - left;
     const h = top - floor;
     const cx = (left + right) / 2;
