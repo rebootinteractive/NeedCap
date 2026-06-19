@@ -14,8 +14,8 @@ export class Physics {
     // More solver iterations → contacts in tall stacks resolve firmly instead
     // of letting bodies sink into each other (the "squashed" look).
     this.engine = Matter.Engine.create({
-      positionIterations: 12,
-      velocityIterations: 8,
+      positionIterations: 18,
+      velocityIterations: 12,
       constraintIterations: 4,
     });
     this.world = this.engine.world;
@@ -51,8 +51,8 @@ export class Physics {
     const body = Matter.Bodies.circle(xw * SCALE, yw * SCALE, rw * SCALE, {
       friction: 0.4,
       frictionStatic: 0.6,
-      restitution: 0.12,
-      density: 0.001,
+      restitution: 0.05,
+      density: 0.0006,
     });
     Matter.World.add(this.world, body);
     return body;
@@ -63,9 +63,9 @@ export class Physics {
     const body = Matter.Bodies.rectangle(xw * SCALE, yw * SCALE, s, s, {
       friction: 0.5,
       frictionStatic: 0.7,
-      restitution: 0.08,
-      // caps are heavier than balls so they settle through gaps
-      density: 0.0016,
+      restitution: 0.04,
+      // caps a bit heavier than balls so they settle toward the floor
+      density: 0.0009,
       chamfer: { radius: s * 0.18 },
     });
     Matter.World.add(this.world, body);

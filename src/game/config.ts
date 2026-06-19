@@ -5,7 +5,7 @@
 
 export const SCALE = 60; // physics units per world unit
 export const GRAVITY = 1.0; // matter gravity.y magnitude (applied as -GRAVITY)
-export const GRAVITY_SCALE = 0.0008; // gentler fall so stacks don't compress
+export const GRAVITY_SCALE = 0.0004; // gentler fall so stacks don't compress
 
 export const HALF_WIDTH = 3.2; // playfield half width
 
